@@ -4,14 +4,15 @@ import numpy as np
 import pandas as pd
 import os
 from datetime import datetime
+import plotly.graph_objects as go
 import plotly.express as px
-import wandb
+import wandb # MLOps Integration
 
 # ==========================================
-# 1. CONFIGURATION
+# 1. CONFIGURATION & MLOPS INIT
 # ==========================================
-# REPLACE WITH YOUR DETAILS
-ENTITY = "safou-seds" 
+# MLOPS CONFIG (REPLACE WITH YOUR W&B DETAILS)
+ENTITY = "safou-seds-mlops-org" 
 PROJECT = "nasa-shuttle-mlops"
 MODEL_ARTIFACT = "production_lof_model:latest"
 
@@ -22,36 +23,35 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Initialize W&B for Real-Time Monitoring
+# --- MLOPS: Initialize Monitoring Run ---
 try:
     if wandb.run is None:
-        wandb.init(project=PROJECT, entity=ENTITY, job_type="app_inference")
+        wandb.init(project=PROJECT, entity=ENTITY, job_type="production_monitor")
 except:
     pass
 
-# CSS
+# Custom CSS
 st.markdown("""
     <style>
     .stApp { background-color: #f5f7fa; }
-    .success-box { padding: 20px; background-color: #d4edda; border-left: 5px solid #28a745; }
-    .error-box { padding: 20px; background-color: #f8d7da; border-left: 5px solid #dc3545; }
+    .success-box { padding: 25px; background-color: #d4edda; color: #155724; border-radius: 12px; border-left: 6px solid #28a745; box-shadow: 0 2px 8px rgba(40, 167, 69, 0.15); }
+    .error-box { padding: 25px; background-color: #f8d7da; color: #721c24; border-radius: 12px; border-left: 6px solid #dc3545; box-shadow: 0 2px 8px rgba(220, 53, 69, 0.15); }
     </style>
     """, unsafe_allow_html=True)
 
+# Session State Initialization (for history)
 if 'history' not in st.session_state:
     st.session_state.history = []
+if 'sensor_values' not in st.session_state:
+    st.session_state.sensor_values = [0, 76, 0, 28, 18, 40, 48, 8] # Default normal state
 
 # ==========================================
-# 2. CONTINUOUS DEPLOYMENT (CD) LOADER
+# 2. MLOPS MODEL LOADING (Continuous Deployment)
 # ==========================================
 @st.cache_resource
-def get_production_model():
-    """
-    Downloads the LATEST 'production' model from W&B.
-    This ensures if Retraining happens, the App gets the update.
-    """
+def load_production_model():
+    """Downloads the LOF model directly from the W&B Registry."""
     try:
-        print(f"⬇️ Connecting to Registry: {ENTITY}/{PROJECT}...")
         api = wandb.Api()
         artifact = api.artifact(f"{ENTITY}/{PROJECT}/{MODEL_ARTIFACT}")
         dir_path = artifact.download()
@@ -62,112 +62,136 @@ def get_production_model():
         return None, str(e)
 
 # Load Model
-model, version_info = get_production_model()
+model, version_info = load_production_model()
 
 # ==========================================
-# 3. SIDEBAR
+# 3. SIDEBAR & HEADER
 # ==========================================
 with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/e/e5/NASA_logo.svg", width=180)
-    st.title("🎛️ Flight Control")
+    st.title("🎛️ System Configuration")
     
     if model:
-        st.success(f"🟢 System Online\n{version_info}")
+        st.success(f"🟢 Model Online: LOF\nVersion: {version_info}")
     else:
-        st.error(f"🔴 System Offline\nError: {version_info}")
+        st.error(f"🔴 Deployment Failed! {version_info}")
         st.stop()
 
+    # --- Sidebar Presets Logic ---
     st.markdown("---")
-    st.subheader("⚡ Simulators")
-    if st.button("✅ Force Normal"):
-        st.session_state.preset = [0, 76, 0, 28, 18, 40, 48, 8]
+    st.subheader("⚡ Quick Presets")
+
+    # Preserve preset values
+    preset_values = {
+        'normal': [0, 76, 0, 28, 18, 40, 48, 8],
+        'anomaly': [0, 92, 0, 0, 26, 36, 92, 56],
+        'reset': [0, 0, 0, 0, 0, 0, 0, 0]
+    }
+    
+    if st.button("🟢 Normal Values", use_container_width=True):
+        st.session_state.sensor_values = preset_values['normal']
         st.rerun()
-    if st.button("🚨 Force Anomaly"):
-        st.session_state.preset = [0, 92, 0, 0, 26, 36, 92, 56]
+    if st.button("🔴 Anomaly Test", use_container_width=True):
+        st.session_state.sensor_values = preset_values['anomaly']
         st.rerun()
+    if st.button("🔄 Reset All", use_container_width=True):
+        st.session_state.sensor_values = preset_values['reset']
+        st.rerun()
+# ==========================================
 
 # ==========================================
-# 4. DASHBOARD UI
+# 4. MAIN INTERFACE
 # ==========================================
-st.title("🚀 Shuttle Radiator Anomaly Detection")
-st.caption(f"MLOps Status: Monitoring Active • Registry Connected")
+st.title("🚀 NASA Shuttle Radiator Anomaly Detection")
+st.markdown(f"**System Status:** **<span style='color:green'>🟢 ONLINE</span>**", unsafe_allow_html=True)
+st.markdown("---")
+st.header("📡 Telemetry Input Panel")
 
-# Handle Presets
-if 'preset' in st.session_state:
-    vals = st.session_state.preset
-    del st.session_state.preset
-else:
-    vals = [0, 76, 0, 28, 18, 40, 48, 8]
+# Get values from session state to set the initial value of number_input
+vals = st.session_state.sensor_values
 
-st.subheader("📡 Live Sensor Telemetry")
-c1, c2, c3, c4 = st.columns(4)
-with c1: s2 = st.number_input("A2 (Temp)", value=vals[0])
-with c2: s3 = st.number_input("A3 (Flow)", value=vals[1])
-with c3: s4 = st.number_input("A4 (Pressure)", value=vals[2])
-with c4: s5 = st.number_input("A5 (Rad)", value=vals[3])
-c5, c6, c7, c8 = st.columns(4)
-with c5: s6 = st.number_input("A6", value=vals[4])
-with c6: s7 = st.number_input("A7", value=vals[5])
-with c7: s8 = st.number_input("A8", value=vals[6])
-with c8: s9 = st.number_input("A9", value=vals[7])
+# Sensor Input Grid (Original structure restored)
+col1, col2, col3, col4 = st.columns(4)
+with col1: s2 = st.number_input("🔵 Sensor A2", value=vals[0])
+with col2: s3 = st.number_input("🟢 Sensor A3", value=vals[1])
+with col3: s4 = st.number_input("🟡 Sensor A4", value=vals[2])
+with col4: s5 = st.number_input("🟠 Sensor A5", value=vals[3])
 
-# Bar Chart
-df_chart = pd.DataFrame({
-    'Sensor': ['A2', 'A3', 'A4', 'A5', 'A6', 'A7', 'A8', 'A9'],
-    'Value': [s2, s3, s4, s5, s6, s7, s8, s9]
-})
-st.plotly_chart(px.bar(df_chart, x='Sensor', y='Value', color='Value'), use_container_width=True)
+col5, col6, col7, col8 = st.columns(4)
+with col5: s6 = st.number_input("🔵 Sensor A6", value=vals[4])
+with col6: s7 = st.number_input("🟢 Sensor A7", value=vals[5])
+with col7: s8 = st.number_input("🟡 Sensor A8", value=vals[6])
+with col8: s9 = st.number_input("🟠 Sensor A9", value=vals[7])
+
+# Visualization of Inputs
+s_vals = [s2, s3, s4, s5, s6, s7, s8, s9]
+df_chart = pd.DataFrame({'Sensor': ['A2', 'A3', 'A4', 'A5', 'A6', 'A7', 'A8', 'A9'], 'Value': s_vals})
+st.plotly_chart(px.bar(df_chart, x='Sensor', y='Value', title='Current Sensor Readings', color='Value', color_continuous_scale='RdYlGn_r'), use_container_width=True)
 
 # ==========================================
-# 5. PREDICTION & MONITORING
+# 5. PREDICTION & MLOPS MONITORING
 # ==========================================
 if st.button("RUN DIAGNOSTICS", type="primary"):
     
-    # 1. Prepare Input (Array for LOF)
-    input_data = np.array([[s2, s3, s4, s5, s6, s7, s8, s9]])
+    # 1. Prepare Input
+    feature_names = ['A2', 'A3', 'A4', 'A5', 'A6', 'A7', 'A8', 'A9']
+    input_data_df = pd.DataFrame([s_vals], columns=feature_names) # Use current input values
     
-    # 2. Predict
-    pred = model.predict(input_data)[0]
-    try: score = model.decision_function(input_data)[0]
-    except: score = 0.0
-    
-    status = "Normal" if pred == 1 else "Anomaly"
-    
-    # 3. MLOPS LOGGING (This appears in W&B Project Dashboard)
-    try:
-        wandb.log({
-            "live_input": {
-                "s2": s2, "s3": s3, "s4": s4, "s5": s5, 
-                "s6": s6, "s7": s7, "s8": s8, "s9": s9
-            },
-            "live_prediction": status,
-            "live_score": score,
-            "timestamp": datetime.now().isoformat()
-        })
-    except:
-        pass # Don't crash if internet fails
+    with st.spinner("🔄 Analyzing Sensor Patterns..."):
+        # Predict
+        prediction = model.predict(input_data_df)[0]
+        score = model.decision_function(input_data_df)[0]
+        status = "Normal" if prediction == 1 else "Anomaly"
 
-    # 4. Display
-    if pred == 1:
-        st.markdown(f"""<div class="success-box">
-            <h3>✅ SYSTEM NOMINAL</h3>
-            <p>Score: {score:.4f}</p>
+        # 2. MLOPS MONITORING (Log to W&B)
+        try:
+            wandb.log({
+                "production_input": input_data_df.to_dict(orient='list'), 
+                "prediction_label": status,
+                "anomaly_score": score,
+                "model_version": version_info,
+                "timestamp": datetime.now().isoformat()
+            })
+        except:
+            pass 
+
+        # 3. Update Local History
+        st.session_state.history.append({
+            'timestamp': datetime.now(),
+            'prediction': prediction,
+            'score': score,
+            'status': status
+        })
+        
+        st.rerun()
+
+# ==========================================
+# 6. RESULTS DISPLAY & HISTORY
+# ==========================================
+if len(st.session_state.history) > 0:
+    st.markdown("### 📋 Diagnostic Results")
+    latest = st.session_state.history[-1]
+    prediction = latest['prediction']
+    score = latest['score']
+    
+    if prediction == 1:
+        st.markdown(f"""
+        <div class="success-box">
+            <h2>✅ SYSTEM NOMINAL</h2>
+            <p><b>🎯 Stability Score:</b> <b>{score:.4f}</b> (Positive = Normal)</p>
         </div>""", unsafe_allow_html=True)
         st.balloons()
     else:
-        st.markdown(f"""<div class="error-box">
-            <h3>🚨 ANOMALY DETECTED</h3>
-            <p>Score: {score:.4f}</p>
+        st.markdown(f"""
+        <div class="error-box">
+            <h2>🚨 ANOMALY DETECTED</h2>
+            <p><b>⚠️ Deviation Score:</b> <b>{score:.4f}</b> (Negative = Anomaly)</p>
         </div>""", unsafe_allow_html=True)
-    
-    # 5. Local History Table
-    st.session_state.history.append({
-        "Time": datetime.now().strftime("%H:%M:%S"),
-        "Status": status,
-        "Score": f"{score:.4f}"
-    })
 
-if st.session_state.history:
     st.markdown("---")
-    st.write("### 📜 Event Log")
-    st.dataframe(pd.DataFrame(st.session_state.history).tail(5), use_container_width=True)
+    st.header("📈 Diagnostic History")
+    history_df = pd.DataFrame([
+        {'Time': h['timestamp'].strftime('%H:%M:%S'), 'Status': h['status'], 'Score': f"{h['score']:.4f}"}
+        for h in st.session_state.history[-10:]
+    ])
+    st.dataframe(history_df, use_container_width=True)

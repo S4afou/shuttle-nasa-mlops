@@ -1,39 +1,35 @@
 import wandb
-import time
+import numpy as np
+from sklearn.metrics import f1_score
 from sklearn.neighbors import LocalOutlierFactor
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import f1_score
 import pandas as pd
 import os
-import random # Used for the train function's config
+import joblib
 
 # CONFIG
-ENTITY = "safou-seds" 
+ENTITY = "safou-seds-mlops-org" 
 PROJECT = "nasa-shuttle-mlops"
-METRIC_NAME = "production_f1"
+TRIGGER_METRIC = "production_f1" # The metric we monitor for degradation
+THRESHOLD = 0.85 # Retrain if F1 drops below 85%
 
 # --- Define the Training Function for the Agent ---
 def train_agent_function():
-    # This is the function the wandb agent will run for each trial
     run = wandb.init()
 
     # Load Data Artifact
-    try:
-        artifact = run.use_artifact('shuttle_cleaned_data:latest')
-        artifact_dir = artifact.download()
-        df = pd.read_csv(os.path.join(artifact_dir, "clean_shuttle.csv"))
-    except Exception as e:
-        print(f"Agent failed to load data: {e}")
-        return
-
+    artifact = run.use_artifact('shuttle_cleaned_data:latest')
+    artifact_dir = artifact.download()
+    df = pd.read_csv(os.path.join(artifact_dir, "clean_shuttle.csv"))
+    
     X = df.drop('label', axis=1)
     y = df['label']
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=y, random_state=42)
     X_train_normal = X_train[y_train == 0]
     
-    # Build Pipeline using Sweep Params (from wandb.config)
+    # Pipeline using Sweep Params
     pipeline = Pipeline([
         ('scaler', StandardScaler()),
         ('model', LocalOutlierFactor(
@@ -47,38 +43,34 @@ def train_agent_function():
     pipeline.fit(X_train_normal)
     preds = pipeline.predict(X_test)
     preds = [1 if x == -1 else 0 for x in preds]
-    f1 = f1_score(y_test, preds)
     
-    # Log Result
+    # --- LOG F1 (The Metric for Optimization) ---
+    f1 = f1_score(y_test, preds)
     wandb.log({'f1_anomaly': f1})
 
-# --- 1. Automated Health Check ---
+# --- Automated Health Check ---
 api = wandb.Api()
-THRESHOLD = 0.85 # Setting threshold high so the monitor script easily triggers it
-
-print("🔍 Checking Production Health (F1 Score)...")
 
 try:
-    # 1. Get the latest monitoring run
     monitor_runs = api.runs(f"{ENTITY}/{PROJECT}", {"jobType": "monitor"})
-    latest_monitor_run = max(monitor_runs, key=lambda r: r.created_at)
-
-    # 2. Extract the last logged F1 score (using the metric name from 04_monitoring.py)
-    # We assume the last metric logged is the most recent (final batch)
-    latest_f1 = latest_monitor_run.summary.get(f"production_{METRIC_NAME}", 0) 
+    latest_run = sorted(monitor_runs, key=lambda r: r.created_at, reverse=True)[0]
+    
+    # Get the latest F1 score logged by the monitor (Crucial update)
+    history = latest_run.history()
+    # We look for the last logged value of the trigger metric
+    latest_f1 = history[f"{TRIGGER_METRIC}"].iloc[-1] 
     
 except Exception as e:
-    print(f"❌ Error: Could not fetch monitoring run summary. Please run 04_monitoring.py first. Error: {e}")
-    latest_f1 = 0.0 # Force trigger if fetch fails
+    print(f"❌ Error fetching latest metric. Run 04_monitoring.py. Error: {e}")
+    latest_f1 = 0.0 
 
 print(f"📉 Latest Production F1 Score: {latest_f1:.4f}")
 
-# --- 2. Automated Retraining Trigger ---
+# --- Automated Retraining Trigger ---
 if latest_f1 < THRESHOLD:
     print(f"\n🚨 ALERT: Performance ({latest_f1:.4f}) is below threshold ({THRESHOLD}).")
-    print("🚀 Auto-Triggering Retraining Pipeline...")
     
-    # A. Define Sweep Config (The fix parameters)
+    # A. Define Sweep Config
     sweep_config = {
         'method': 'bayes',
         'metric': {'name': 'f1_anomaly', 'goal': 'maximize'},
@@ -90,25 +82,21 @@ if latest_f1 < THRESHOLD:
 
     # B. Launch the new sweep
     new_sweep_id = wandb.sweep(sweep_config, project=PROJECT) 
-    print(f"   ✅ New Sweep Launched! ID: {new_sweep_id}")
     
-    # C. Start the agent programmatically (The Fully Automated Step)
+    # C. Start the agent programmatically
     print("   🧠 Agent Starting... Running 5 new experiments to find a fix.")
     wandb.agent(new_sweep_id, function=train_agent_function, count=5)
     
-    # D. Log Alert (Closing the loop)
+    # D. Log Alert
     alert_run = wandb.init(project=PROJECT, job_type="retraining_alert")
     wandb.alert(
         title="✅ Automated Retraining Completed",
-        text=f"Retraining finished. Best model found and ready for manual deployment."
+        text=f"Retraining finished. F1 improved from {latest_f1:.4f}. New best model is available."
     )
     alert_run.finish()
     
-    print("🎉 Full MLOps Loop Closed: Failure detected and fixed.")
-
 else:
     print("✅ System Healthy. No retraining needed.")
 
-# Final step to ensure all open runs close
 if wandb.run:
     wandb.finish()
