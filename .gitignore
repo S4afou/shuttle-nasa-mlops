@@ -1,0 +1,37 @@
+# --- Python Specific ---
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Environments
+venv/
+.venv/
+env/
+
+# IDE and Editor files
+.vscode/
+.idea/
+*.sublime-*
+
+# --- MLOps/W&B Specific ---
+# Weights & Biases local folders and cache
+wandb/
+.wandb/
+logs/
+wandb-client-artifact*
+
+# Models and Artifacts (Never commit large files to Git)
+*.pkl
+*.joblib
+model.pkl
+best_rf_model.pkl
+shuttle_lof_pipeline.pkl
+shuttle_ocsvm_99f1.pkl
+
+# --- Data Specific ---
+# Raw or Processed Data (Use DVC or W&B Artifacts for these)
+data/
+*.csv
+*.json
