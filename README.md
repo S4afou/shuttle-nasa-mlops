@@ -33,6 +33,7 @@ This project respects the MLOps principles by implementing the following stages:
 
 ## ⚙️ Reproducibility: Environment Setup
 To replicate the environment and execute the pipeline, follow these instructions.
+NB: you need python 3.10 for this to work.
 
 ### 1. Installation
 ```bash
