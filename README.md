@@ -1,9 +1,9 @@
 # NASA shuttle anomaly detection: an MLOps lifecycle
 
-A working MLOps loop around an anomaly detector for NASA shuttle radiator telemetry. Six
-phases, one script each: data versioning, hyperparameter search, model registration,
-deployment, drift monitoring and automated retraining. Weights and Biases holds the runs,
-the artifacts and the sweep engine; Streamlit is the deployment.
+I built a working MLOps loop around an anomaly detector for NASA shuttle radiator
+telemetry. Six phases, one script each: data versioning, hyperparameter search, model
+registration, deployment, drift monitoring and automated retraining. Weights and Biases
+holds the runs, the artifacts and the sweep engine; Streamlit is the deployment.
 
 The detector itself, with its three pre-trained pipelines and the diagnostic panel, lives in
 [shuttle-nasa-ML](https://github.com/S4afou/shuttle-nasa-ML).
@@ -68,8 +68,8 @@ requirements.txt
 
 - Nothing is hard-coded to a local path. Each phase reads the artifact it needs from the
   registry, so the loop can restart at any phase.
-- The monitoring script simulates ten batches of live telemetry and injects noise into the
-  final ones, which is how the drift is produced without a real sensor feed.
+- I simulate ten batches of live telemetry in the monitoring script and inject noise into
+  the final ones, which is how the drift is produced without a real sensor feed.
 - `wandb/` and `data/` are ignored. Runs live in the cloud project, not in git.
 
 ## Dataset
@@ -77,3 +77,6 @@ requirements.txt
 OpenML `shuttle` (version 1): nine numeric sensor channels, about 56,000 rows, seven
 original classes mapped to normal against anomaly. The class balance is heavily skewed, so
 the pipeline reports F1 rather than accuracy.
+
+More about this project on my portfolio:
+https://safouane-medjahri.vercel.app/projects/shuttle-anomaly-detection
